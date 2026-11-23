@@ -66,7 +66,7 @@ def assess_quality(customers: list[dict], transactions: list[dict]) -> list[dict
         if row["amount"] <= 0:
             issues.append({"severity": "HIGH", "issue": "NON_POSITIVE_AMOUNT", "record_id": row["transaction_id"]})
         if not row["currency"]:
-            issues.append({"severity": "MEDIUM", "issue": "MISSING_CURRENCY", "record_id": row["transaction_id"])
+            issues.append({"severity": "MEDIUM", "issue": "MISSING_CURRENCY", "record_id": row["transaction_id"]})
     for row in customers:
         if not row["country"]:
             issues.append({"severity": "MEDIUM", "issue": "MISSING_CUSTOMER_COUNTRY", "record_id": row["customer_id"]})
