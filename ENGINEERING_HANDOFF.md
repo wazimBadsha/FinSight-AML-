@@ -1,80 +1,70 @@
 # FinSight AML — Engineering Handoff
 
-**Version:** 0.1.0  
-**Delivery type:** Local portfolio MVP scaffold  
-**Status:** Published to public GitHub repository; Python CI passed on implementation commit
+**Version:** 0.2.0  
+**Delivery:** Synthetic-data analytics portfolio demonstrator  
+**Implementation scope:** Resumable batch/streaming CLI and CI smoke tests
 
-## 1. Objective
-Deliver a reproducible, synthetic-data analytics demonstrator that shows the flow from data generation through quality checks and explainable monitoring heuristics to Power BI-ready outputs.
+## 1. Root cause
+The initial CLI generated all transactions into an in-memory list, then analysed and exported the entire collection at the end. This is a finite batch process, not a durable background worker. Large workloads therefore consume memory proportional to total transaction count and provide no persisted progress if terminated.
 
-## 2. Delivered components
-- Python package under `src/finsight_aml/`.
-- Deterministic synthetic customer and transaction generator.
-- Data-quality checks.
-- Three explainable monitoring heuristics.
-- CSV exports and run summary generated at runtime (generated datasets are not committed).
-- PostgreSQL reference schema and analytical SQL.
-- Power BI dashboard implementation guide.
-- Automated tests.
-- Architecture, requirements, data dictionary and responsible-use documentation.
-- GitHub Actions workflow for Python tests and a pipeline smoke test.
+GitHub Actions is also a finite CI execution environment, not a permanent background host. It terminates jobs at completion or when platform/job limits are reached. A repository cannot create an indefinitely running process simply by pushing code.
 
-## 3. Run instructions
+The README disclaimer about synthetic data and illustrative rules is a responsible-use notice. It does not cause process termination or control runtime behavior.
+
+## 2. Changes in this repair
+- Preserved the original `run()` batch API for existing callers/tests.
+- Added a streaming CLI mode (`--stream`) that generates and persists bounded transaction batches.
+- Added atomic checkpoint and run-state JSON writes at batch boundaries.
+- Added progress JSON output to stdout.
+- Added SIGINT/SIGTERM handling that finishes the current batch and persists an interrupted state.
+- Added `--resume` support with strict run-configuration matching.
+- Added streaming completion, interruption/resume and mismatch tests.
+- Added GitHub Actions smoke coverage for the streaming path.
+- Documented why GitHub Actions is not a permanent background process host and included a systemd oneshot example for managed Linux execution.
+
+## 3. Usage
 ```bash
 python -m venv .venv
-source .venv/bin/activate                 # Windows: .venv\\Scripts\\Activate.ps1
+source .venv/bin/activate
 python -m pip install -e '.[test]'
-python -m finsight_aml.pipeline --customers 250 --transactions 10000 --output data/generated
 pytest -q
+
+# Small in-memory batch mode (backward compatible)
+python -m finsight_aml.pipeline --customers 250 --transactions 10000 --output data/generated
+
+# Streaming mode
+python -m finsight_aml.pipeline --stream --customers 250 --transactions 1000000 --batch-size 5000 --output data/long-run
+
+# Resume after Ctrl+C / SIGTERM
+python -m finsight_aml.pipeline --stream --resume --customers 250 --transactions 1000000 --batch-size 5000 --output data/long-run
 ```
 
-## 4. Verification evidence
+## 4. Runtime contract
+- Batch mode remains finite and uses memory proportional to input data.
+- Streaming mode keeps each transaction batch bounded in memory; customer profiles and alert aggregation remain in memory.
+- Checkpoints are written after each batch, so a crash can lose at most the currently written batch if termination occurs during file output. See risks below.
+- Resume is deterministic when run parameters match; it replays the seeded random stream to the checkpoint. Long resumes take longer as the checkpoint index grows.
+- The process does not daemonize itself. Use systemd, Supervisor or a container orchestrator for managed execution.
+- GitHub Actions validates behavior but must not be used as a persistent 24/7 worker.
 
-### Local verification
-The project was run locally on 2026-11-23:
-- Python test suite: 5 passed.
-- Pipeline smoke test: generated 40 customers / 1,200 transactions and expected outputs.
-- Standard sample: 250 customers / 10,000 transactions.
-- Sample alert count: 79.
-- Generated sample data-quality issue count: 0.
-- Python compilation and ZIP integrity: passed.
+## 5. Verification
+CI will verify:
+- Unit tests, including stream completion and interruption/resume.
+- Batch pipeline smoke test.
+- Streaming pipeline smoke test.
+- Final checkpoint status and total transaction count.
 
-### GitHub Actions verification
-- Workflow: `tests`
-- Job: `python-tests`
-- Implementation commit tested: `075b9e4352e5fbd1e2cb387d5993c843f18875d6`
-- Workflow run: [45220168398](https://github.com/wazimBadsha/FinSight-AML-/actions/runs/45220168398)
-- Result: **SUCCESS**
-- Verified steps: dependency installation, `pytest -q`, and pipeline smoke test.
+Do not mark the repair verified until the workflow for the repair commit is completed successfully.
 
-This is CI evidence for the implementation commit above. The subsequent documentation-only handoff update triggers a new workflow run; check the Actions page for its result before treating the current HEAD as CI-verified.
+## 6. Known limitations and future hardening
+- Output CSVs are append-based and checkpointing is batch-boundary based. For robust recovery from partial writes, implement transaction-batch staging files and atomic rename/manifest commit before advancing the checkpoint.
+- Resume replays the RNG stream to reconstruct state, so resume time is O(checkpoint index); a future version should persist RNG state or deterministic per-index generation.
+- Current alert detection evaluates each batch independently; the transaction-count scenario is therefore batch-scoped in streaming mode, not equivalent to full-run aggregation. A production-grade design should maintain durable per-customer aggregate state or process a second aggregate pass.
+- Customer population remains in memory; a database-backed customer dimension is the next scaling step.
+- PostgreSQL DDL and query assets are not integrated or execution-verified.
+- Power BI report/`.pbix` is not included or validation-verified.
+- No real banking data, external sanctions feed, production integrations, ML model or regulatory decision logic.
+- No OpsTruth signed evidence receipt has been generated in this environment.
 
-## 5. Known limitations / open work
-- PostgreSQL schema and queries are reference assets, not wired into the executable pipeline.
-- Power BI `.pbix` file is not included; only an implementation guide and DAX examples are provided.
-- No real banking data, external sanctions lists, production integrations, ML model or regulatory decision logic.
-- Rules are illustrative and not calibrated or validated.
-- No authentication, authorization, deployment, observability or production security controls are implemented because this is a local portfolio demonstrator.
-- PostgreSQL DDL/query execution and Power BI report validation have not been performed.
-- No independent OpsTruth receipt or signed evidence snapshot has been generated.
-
-## 6. Security and privacy
-- No real personal, banking or customer data should be added to the repository.
-- Do not commit credentials, tokens, connection strings or private datasets.
-- Keep generated data clearly labelled synthetic.
-- Review dependencies and license obligations before adding third-party packages.
-
-## 7. Handoff acceptance criteria
-- [x] Python pipeline and tests included in repository.
-- [x] Generated datasets excluded from version control.
-- [x] PostgreSQL reference schema and queries included.
-- [x] Power BI implementation guide included.
-- [x] GitHub Actions passed on implementation commit `075b9e4`.
-- [ ] Current documentation HEAD GitHub Actions run completes successfully.
-- [ ] PostgreSQL DDL executes on a supported PostgreSQL instance.
-- [ ] SQL queries execute against loaded sample data.
-- [ ] Power BI report is built and reviewed; screenshots and `.pbix` are committed only after verification.
-- [ ] OpsTruth repository and CI evidence audit completed.
-
-## 8. Scope statement
-This is an educational analytics project, not a production financial-crime control. Alerts are review prompts only; they do not establish wrongdoing or replace qualified compliance investigation.
+## 7. Responsible use
+All records are synthetic. Monitoring thresholds are illustrative and unvalidated. An alert is a review prompt, not evidence of criminal activity, and cannot be used as an automated compliance decision. Do not add actual customer or bank data.
