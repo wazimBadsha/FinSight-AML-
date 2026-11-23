@@ -17,10 +17,8 @@ def test_streaming_can_resume_after_interruption(tmp_path):
         calls["count"] += 1
         return calls["count"] >= 2
 
-    first = run_streaming(
-        tmp_path, customers=20, transactions=100, seed=9, batch_size=25,
-        should_stop=stop_after_one_batch,
-    )
+    first = run_streaming(tmp_path, customers=20, transactions=100, seed=9, batch_size=25,
+                          should_stop=stop_after_one_batch)
     assert first["status"] == "interrupted"
     assert first["last_transaction"] == 25
 
