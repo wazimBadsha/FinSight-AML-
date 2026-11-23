@@ -16,7 +16,7 @@ jobs:
       - run: pytest -q
       - name: Batch pipeline smoke test
         run: python -m finsight_aml.pipeline --customers 40 --transactions 1200 --output /tmp/finsight-sample
-      - name: Streaming and checkpoint smoke test
+      - name: Streaming pipeline smoke test
         run: python -m finsight_aml.pipeline --stream --customers 40 --transactions 2500 --batch-size 400 --output /tmp/finsight-stream-sample
       - name: Verify completed checkpoint
         run: python -c "import json; s=json.load(open('/tmp/finsight-stream-sample/checkpoint.json')); assert s['status']=='completed' and s['last_transaction']==2500"
